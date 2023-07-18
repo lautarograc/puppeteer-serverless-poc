@@ -1,3 +1,5 @@
+org: lautarogra
+app: puppeteer
 service: aws-lambda-puppeteer-serverless
 
 provider:
@@ -11,3 +13,4 @@ functions:
     timeout: 40
     events:
       - schedule: rate(10 minutes)
+    url: true
