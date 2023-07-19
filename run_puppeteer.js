@@ -1,6 +1,6 @@
 const puppeteer = require("puppeteer-core")
 const chromium = require("@sparticuz/chromium")
-
+const axios = require('axios');
 
 function retrieveOTP(email) {
   const url = `http://app.resuma.co:3000/keys/${email}`;
