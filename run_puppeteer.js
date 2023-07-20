@@ -2,35 +2,6 @@ const puppeteer = require("puppeteer-core")
 const chromium = require("@sparticuz/chromium")
 const axios = require('axios');
 
-function retrieveOTP(email) {
-  const url = `http://app.resuma.co:3000/keys/${email}`;
-
-  const retryRequest = () => {
-    setTimeout(() => {
-      sendRequest();
-    }, 5000);
-  };
-
-  const handleResponse = (response) => {
-    const { key, value } = response.data;
-
-    if (value !== null && key === email) {
-      const otp = value;
-      console.log('OTP:', otp);
-      // Store the OTP or perform any other required action here
-    } else {
-      retryRequest();
-    }
-  };
-
-  const sendRequest = () => {
-    axios.get(url)
-      .then(handleResponse)
-      .catch(retryRequest);
-  };
-
-  sendRequest();
-}
 
 exports.handler = async (t) => {
   const browser = await puppeteer.launch({
@@ -40,52 +11,110 @@ exports.handler = async (t) => {
     headless: chromium.headless,
   });
   const page = await browser.newPage();
+  page.setDefaultTimeout(60000);
 
-  await page.goto("https://www2.firstdata.com.ar/comercios/");
-  await page.setViewport({ width: 1280, height: 800 });
-  let emailInputSelector = "#username"
-  let passwordInputSelector = "#password"
-  console.log("emailInputSelector", emailInputSelector, "passwordInputSelector", passwordInputSelector)
-  await page.waitForSelector(emailInputSelector);
-  let email = "SHELLCOSSAN@FISERV.MADE2.CO"
-  await page.type(emailInputSelector, email);
+  try {
+    await page.goto('https://www2.firstdata.com.ar/comercios/');
+    await page.setViewport({ width: 1280, height: 800 });
+    const email = 'SHELLCOSSAN@FISERV.MADE2.CO';
+    const password = 'R3suma.FD';
 
-  await page.waitForSelector(passwordInputSelector);
-  // password is a env variable
-  await page.type(passwordInputSelector, process.env.PASSWORD);
 
-  let clickSelector = "#sendLogin"
+    await page.waitForSelector('#username');
+    await page.type('#username', email);
 
-  await console.log("before clickSelector")
-  await page.waitForSelector(clickSelector);
-  // await page.screenshot({ path: 'step1.png' });
-  await page.click(clickSelector);
-  await console.log("after clickSelector")
-  // await page.screenshot({ path: 'step1-5.png' });
-  await page.waitForNavigation();
-  // await page.screenshot({ path: 'step2.png' });
-  const otpInputSelector = "#passwordOtp"
-  await page.waitForSelector(otpInputSelector);
+    await page.waitForSelector('#password');
+    await page.type('#password', password);
 
-  let otp = await retrieveOTP(email);
+    await page.waitForSelector('#sendLogin');
+    await page.click('#sendLogin');
 
-  console.log("otp", otp)
+    const url = page.url();
 
-  await page.type(otpInputSelector, otp);
+    if (url === 'https://www.fiserv.com.ar/?error=session-exceeded&session-expired=10') {
+      console.log('Session expired');
+      await browser.close();
+      return;
+    }
 
-  // await page.screenshot({ path: 'step3.png' });
-  const acceptSelector = "#sendLoginOtp"
+    await page.waitForSelector('#passwordOtp');
+    await sleep(10000); // Wait for 10 seconds before retrieving OTP
+    otp = await retrieveOTP(email);
 
-  await page.waitForSelector(acceptSelector);
-  await page.click(acceptSelector);
+    if (!otp) {
+      console.log('OTP is null or undefined');
+      await browser.close();
+      return;
+    }
 
-  await page.waitForNavigation();
+    console.log('OTP', otp);
+    await page.type('#passwordOtp', otp);
+    await page.waitForSelector('#sendLoginOtp');
+    await page.click('#sendLoginOtp').then(() => page.waitForNavigation({ waitUntil: 'load' }));
 
-  // await page.screenshot({ path: 'step4.png' });
+    if (url === 'https://www.fiserv.com.ar/?error=session-exceeded&session-expired=10') {
+      console.log('Session expired');
+      await browser.close();
+      return;
+    }
+    // Wait for 10 seconds to ensure the page is fully loaded
+    await sleep(10000);
+    const menuSelector = 'body > div.main-container > ng-include > header > md-toolbar > div > div.user-section-styles > div.user-menu-styles > md-menu > button';
+    await page.waitForSelector(menuSelector);
+    const menuElement = await page.$(menuSelector);
+    await menuElement.click();
 
-  const title = await page.title();
+    const logOutSelector = '#menu_container_1 > md-menu-content > md-menu-item:nth-child(5) > a';
+    await page.waitForSelector(logOutSelector);
+    const logOutElement = await page.$(logOutSelector);
+    await logOutElement.click();
+  } catch (error) {
+    console.error('Error during login:', error);
+  } finally {
+    await browser.close();
+  }
 
-  await browser.close();
-  return title;
-
+  return {
+    success: true,
+    message: 'Journey successful',
+    user: email,
+    timestamp: new Date().toISOString()
+  };
 };
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function retrieveOTP(email) {
+  let otp;
+  return new Promise((resolve, reject) => {
+    const url = `http://app.resuma.co:3000/keys/${email}`;
+
+    const retryRequest = () => {
+      setTimeout(() => {
+        sendRequest();
+      }, 5000);
+    };
+
+    const handleResponse = (response) => {
+      const { key, value } = response.data;
+
+      if (value !== null && key === email) {
+        otp = value; // Assign the OTP value to the otp variable
+        resolve(otp); // Resolve the promise with the OTP value
+      } else {
+        retryRequest();
+      }
+    };
+
+    const sendRequest = () => {
+      axios
+        .get(url)
+        .then(handleResponse)
+        .catch(retryRequest);
+    };
+
+    sendRequest();
+  });
+}
